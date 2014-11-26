@@ -8,7 +8,7 @@
 #define DISP_CLK 4
 #define DISP_DIO 2
 
-const char *version="ChronoDot_20141027 -> V5.0.0-20141125 ";
+const char *version="ChronoDot_20141027 -> V5.1.0-20141126 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
 // Works with both now, china module has memory also.
 // shows date at top of minute now with V4
@@ -20,6 +20,7 @@ const int DS3231_addr = 0x68; // DS3231 I2C address ChronoDot
 // const int DS3231_addr = 0x57; // DS3231 I2C address China Board
 unsigned long last_msec = 9999999; // initialize to weird value to assure quick first read
 unsigned long last_sec=0;
+byte bright = 0x0f;
 
 TM1637Display display(DISP_CLK, DISP_DIO);
 
@@ -30,7 +31,7 @@ void setup()
   Wire.begin();
   DS3231_setup();
   drm_start_print();
-  display.setBrightness(0x0f);
+  display.setBrightness(bright);
 }
  
 void loop()
@@ -47,7 +48,8 @@ void loop()
 
   if (Serial.available() > 0) {
     tempbyte = Serial.read();
-    if((tempbyte >= (byte) 'A') && tempbyte <= 'Z') inbyte = tempbyte; // ignore any other than CAP alpha chars
+    if(((tempbyte >= (byte) 'A') && tempbyte <= 'Z') | 
+       ((tempbyte >= (byte) 'a') && tempbyte <= 'z')) inbyte = tempbyte; // ignore any other than alpha chars
   }
 
   if(inbyte != NULL || next_sec) {
@@ -70,6 +72,10 @@ void loop()
     case 's':
       inc_datetime(inbyte, read_by);
     break;
+    case 'b':
+      display.setBrightness(0x0f & (bright++));
+      Serial.println(0x0f & bright);
+      break;
     default:;
     }
     print_time(read_by, new_msec);
@@ -101,15 +107,12 @@ void inc_datetime(byte inbyte, byte *read_by) {
   }
   byte newbyte = (1+(bcd2dec_byte(*(read_by+addr)) & mask)) % mod;
   (*(read_by+addr) + 1) % mod; // increment the value with wraping 
-  Serial.print(addr); Serial.print(" - "); Serial.println(newbyte);
   newbyte = ((newbyte/10) << 4) | (newbyte % 10); // convert to BCD
-  Serial.print(addr); Serial.print(" - "); Serial.println(newbyte, HEX);
 
   Wire.beginTransmission(DS3231_addr); // DS3231_addr is DS3231 device address
   Wire.write(addr); // address of BCD digits
   Wire.write(newbyte); // Write the incremented value
-  Wire.endTransmission();      
-  
+  Wire.endTransmission();
 }
 
 unsigned short drm_serialno() {
