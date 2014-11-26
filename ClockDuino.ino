@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <EEPROM.h>
+#include <avr/wdt.h>
 #include <TM1637Display.h>
 
 // Display Module connection pins (Digital Pins)
@@ -24,8 +25,9 @@ TM1637Display display(DISP_CLK, DISP_DIO);
 
 void setup()
 {
-  Wire.begin();
   Serial.begin(115200);
+  watchdogSetup();
+  Wire.begin();
   DS3231_setup();
   drm_start_print();
   display.setBrightness(0x0f);
@@ -37,6 +39,7 @@ void loop()
   byte read_by[num_regs];
   
   unsigned long new_msec = millis();
+  wdt_reset();
   LED_Blink(11, last_msec, new_msec);  // Flash an LED on PWM pin 11
   
   boolean next_sec = (last_msec/msec_repeat != new_msec/msec_repeat);
@@ -59,10 +62,54 @@ void loop()
       set_time();
       read_clock(read_by);
       break;
+    case 'Y':
+    case 'M':
+    case 'D':
+    case 'h':
+    case 'm':
+    case 's':
+      inc_datetime(inbyte, read_by);
+    break;
     default:;
     }
     print_time(read_by, new_msec);
   }
+}
+
+void inc_datetime(byte inbyte, byte *read_by) {
+  byte addr, mask, mod;
+  
+  switch (inbyte) {
+  case 'Y':
+    addr = 6; mod = 100; mask = 0xff;
+    break;
+  case 'M': 
+    addr = 5; mod = 12; mask = 0x1f;
+    break;
+  case 'D':
+    addr = 4; mod = 31; mask = 0xff;
+    break;
+  case 'h':
+    addr = 2; mod = 24; mask = 0x3f;
+    break;
+  case 'm':
+    addr = 1; mod = 60; mask = 0xff;
+    break;
+  case 's':
+    addr = 0; mod = 60; mask = 0xff;
+    break;
+  }
+  byte newbyte = (1+(bcd2dec_byte(*(read_by+addr)) & mask)) % mod;
+  (*(read_by+addr) + 1) % mod; // increment the value with wraping 
+  Serial.print(addr); Serial.print(" - "); Serial.println(newbyte);
+  newbyte = ((newbyte/10) << 4) | (newbyte % 10); // convert to BCD
+  Serial.print(addr); Serial.print(" - "); Serial.println(newbyte, HEX);
+
+  Wire.beginTransmission(DS3231_addr); // DS3231_addr is DS3231 device address
+  Wire.write(addr); // address of BCD digits
+  Wire.write(newbyte); // Write the incremented value
+  Wire.endTransmission();      
+  
 }
 
 unsigned short drm_serialno() {
@@ -247,6 +294,7 @@ void print_DS3231_registers(byte *read_by) {
   Serial.println("");
   clear_alarms(read_by[15]);
 }
+
 boolean LED_Blink(int pin, unsigned long last_msec, unsigned long new_msec) {
   // Flash an LED on PWM pin 11
   const unsigned long period=2000;
@@ -255,6 +303,7 @@ boolean LED_Blink(int pin, unsigned long last_msec, unsigned long new_msec) {
   analogWrite(pin, intensity);
   return(intensity);
 }
+
 void write_Disp(int year,int month,int dom, int hours, int minutes, int seconds, long msecs) {
   int num;
   byte colon=0x00;
@@ -279,4 +328,22 @@ void write_Disp(int year,int month,int dom, int hours, int minutes, int seconds,
   digits[3]=display.encodeDigit(num_lo - 10*(num_lo/10));
   
   display.setSegments(digits);
+}
+
+void watchdogSetup(void)
+{
+  cli();
+  wdt_reset();
+/*
+  WDTCSR configuration:
+  WDIE = 1: Interrupt Enable
+  WDE = 1 :Reset Enable
+  See table in datasheet for time-out variations:
+ */
+// Enter Watchdog Configuration mode:
+  WDTCSR |= (1<<WDCE) | (1<<WDE);
+// Set Watchdog time and results:
+  WDTCSR = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (1<<WDP2) | (1<<WDP1) | (1<<WDP0);
+  sei();
+  delayMicroseconds(100);
 }
