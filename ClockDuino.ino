@@ -7,10 +7,11 @@
 #define DISP_CLK 4
 #define DISP_DIO 2
 
-const char *version="ChronoDot_20141027 -> V4.0.1-20141120 ";
+const char *version="ChronoDot_20141027 -> V5.0.0-20141125 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
 // Works with both now, china module has memory also.
 // shows date at top of minute now with V4
+// Major rework of UI and add watchdog with V5
 //
 const long msec_repeat=500;
 const int num_regs = 19;
