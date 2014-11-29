@@ -1,12 +1,35 @@
 #include <Arduino.h>
+
+#include <avr/sleep.h>
+#include <avr/power.h>
+#include <avr/wdt.h>
+
 #include <Wire.h>
 #include <EEPROM.h>
-#include <avr/wdt.h>
 #include <TM1637Display.h>
 
 // Display Module connection pins (Digital Pins)
 #define DISP_CLK 4
 #define DISP_DIO 2
+#define LED_PIN (13)
+
+/*
+  See table Pg 55 datasheet for time-out variations:
+  Watchdog preset scaler is set by 4 bits in the WDTCSR
+        WDP3 WDP2 WDP1 WDP0
+        VCC = 5.0V
+        0 0 0 0 2K     (2048)   cycles   16 ms
+        0 0 0 1 4K     (4096)   cycles   32 ms
+        0 0 1 0 8K     (8192)   cycles   64 ms
+        0 0 1 1 16K    (16384)  cycles   0.125 s
+        0 1 0 0 32K    (32768)  cycles   0.25 s
+        0 1 0 1 64K    (65536)  cycles   0.5 s
+        0 1 1 0 128K   (131072) cycles   1.0 s
+        0 1 1 1 256K   (262144) cycles   2.0 s
+        1 0 0 0 512K   (524288) cycles   4.0 s
+        1 0 0 1 1024K  (1048576)cycles   8.0 s
+ */
+const byte wdt_Setup = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (1<<WDP2) | (0<<WDP1) | (0<<WDP0); // 0.5 sec
 
 const char *version="ChronoDot_20141027 -> V5.1.0-20141126 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
@@ -21,6 +44,7 @@ const int DS3231_addr = 0x68; // DS3231 I2C address ChronoDot
 unsigned long last_msec = 9999999; // initialize to weird value to assure quick first read
 unsigned long last_sec=0;
 byte bright = 0x0f;
+volatile boolean wdt_int;
 
 TM1637Display display(DISP_CLK, DISP_DIO);
 
@@ -30,18 +54,20 @@ void setup()
   watchdogSetup();
   Wire.begin();
   DS3231_setup();
+  pinMode(LED_PIN,OUTPUT);
   drm_start_print();
   display.setBrightness(bright);
 }
  
 void loop()
 {
+  boolean t_wdt_int = wdt_int;
   char inbyte=NULL, tempbyte=NULL;
   byte read_by[num_regs];
   
   unsigned long new_msec = millis();
-  wdt_reset();
-  LED_Blink(11, last_msec, new_msec);  // Flash an LED on PWM pin 11
+  // wdt_reset();
+  // LED_Blink(11, last_msec, new_msec);  // Flash an LED on PWM pin 11
   
   boolean next_sec = (last_msec/msec_repeat != new_msec/msec_repeat);
   if(next_sec) last_msec=new_msec;
@@ -52,7 +78,7 @@ void loop()
        ((tempbyte >= (byte) 'a') && tempbyte <= 'z')) inbyte = tempbyte; // ignore any other than alpha chars
   }
 
-  if(inbyte != NULL || next_sec) {
+  if(inbyte != NULL || next_sec || t_wdt_int) {
     read_clock(read_by); // read DS3231 registers
 
     switch (inbyte) {
@@ -79,6 +105,11 @@ void loop()
     default:;
     }
     print_time(read_by, new_msec);
+  }
+  enterSleep();
+  if (t_wdt_int) {
+//    Serial.println("Watchdog");
+    wdt_int = false;
   }
 }
 
@@ -298,6 +329,7 @@ void print_DS3231_registers(byte *read_by) {
   clear_alarms(read_by[15]);
 }
 
+/*
 boolean LED_Blink(int pin, unsigned long last_msec, unsigned long new_msec) {
   // Flash an LED on PWM pin 11
   const unsigned long period=2000;
@@ -306,6 +338,7 @@ boolean LED_Blink(int pin, unsigned long last_msec, unsigned long new_msec) {
   analogWrite(pin, intensity);
   return(intensity);
 }
+*/
 
 void write_Disp(int year,int month,int dom, int hours, int minutes, int seconds, long msecs) {
   int num;
@@ -335,18 +368,48 @@ void write_Disp(int year,int month,int dom, int hours, int minutes, int seconds,
 
 void watchdogSetup(void)
 {
-  cli();
+  cli(); // disable interrupts
   wdt_reset();
 /*
   WDTCSR configuration:
   WDIE = 1: Interrupt Enable
   WDE = 1 :Reset Enable
-  See table in datasheet for time-out variations:
  */
 // Enter Watchdog Configuration mode:
   WDTCSR |= (1<<WDCE) | (1<<WDE);
-// Set Watchdog time and results:
-  WDTCSR = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (1<<WDP2) | (1<<WDP1) | (1<<WDP0);
-  sei();
+// Set Watchdog time (2 s) and results:
+  WDTCSR = wdt_Setup;
+  sei(); // enable interrupts
   delayMicroseconds(100);
+}
+ISR( WDT_vect ) {
+  /* dummy */
+  cli(); // disable interrupts
+  wdt_reset();
+// Enter Watchdog Configuration mode:
+  WDTCSR |= (1<<WDCE) | (1<<WDE);
+// Set Watchdog time (2 s) and results:
+  WDTCSR = wdt_Setup;
+  wdt_int = true;
+  sei(); // enable interrupts
+}
+
+void enterSleep(void)
+{
+  digitalWrite(LED_PIN, LOW);
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);   /* EDIT: could also use SLEEP_MODE_PWR_DOWN, SLEEP_MODE_PWR_SAVE for lowest power consumption. */
+  Serial.flush();
+  // delay(10);
+  sleep_enable();
+  
+  /* Now enter sleep mode. */
+  sleep_mode();
+  
+  /* The program will continue from here after the WDT timeout*/
+  sleep_disable(); /* First thing to do is disable sleep. */
+  digitalWrite(LED_PIN, HIGH);
+  
+  /* Re-enable the peripherals. */
+  power_all_enable();
+  Serial.begin(115200);
 }
