@@ -31,7 +31,7 @@
  */
 const byte wdt_Setup = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (1<<WDP2) | (0<<WDP1) | (0<<WDP0); // 0.5 sec
 
-const char *version="ChronoDot_20141027 -> V5.1.0-20141126 ";
+const char *version="ClockDuino -> V5.2.0-20141129 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
 // Works with both now, china module has memory also.
 // shows date at top of minute now with V4
