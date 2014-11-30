@@ -13,6 +13,22 @@
 #define DISP_DIO 2
 #define LED_PIN (13)
 
+typedef struct parseTime {
+  byte seconds;
+  byte minutes;
+  byte hours;
+  byte dow;
+  byte dom;
+  byte month;
+  byte year;
+  byte csr;
+  byte sr;
+  int int_year;
+  unsigned long lsec;
+};
+
+struct parseTime time_bits[1];
+    
 /*
   See table Pg 55 datasheet for time-out variations:
   Watchdog preset scaler is set by 4 bits in the WDTCSR
@@ -29,22 +45,27 @@
         1 0 0 0 512K   (524288) cycles   4.0 s
         1 0 0 1 1024K  (1048576)cycles   8.0 s
  */
-const byte wdt_Setup = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (1<<WDP2) | (0<<WDP1) | (0<<WDP0); // 0.5 sec
+const byte wdt_Setup = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (0<<WDP2) | (1<<WDP1) | (1<<WDP0); // 0.25 sec
+const byte per_sec = 2; // update to be the inverse of the period (might need to be adjusted, used to 
+                        // blink the colon)
+volatile boolean wdt_int;
 
-const char *version="ClockDuino -> V5.2.0-20141129 ";
+const char *version="ClockDuino -> V6.0.0-20141129 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
 // Works with both now, china module has memory also.
 // shows date at top of minute now with V4
 // Major rework of UI and add watchdog with V5
 //
-const long msec_repeat=500;
+const long msec_repeat=250;
 const int num_regs = 19;
 const int DS3231_addr = 0x68; // DS3231 I2C address ChronoDot
 // const int DS3231_addr = 0x57; // DS3231 I2C address China Board
 unsigned long last_msec = 9999999; // initialize to weird value to assure quick first read
 unsigned long last_sec=0;
 byte bright = 0x0f;
-volatile boolean wdt_int;
+
+byte sub_sec = 0;
+byte prev_2dig_sec = 0;
 
 TM1637Display display(DISP_CLK, DISP_DIO);
 
@@ -55,7 +76,7 @@ void setup()
   Wire.begin();
   DS3231_setup();
   pinMode(LED_PIN,OUTPUT);
-  drm_start_print();
+  drm_Start_print();
   display.setBrightness(bright);
 }
  
@@ -66,11 +87,9 @@ void loop()
   byte read_by[num_regs];
   
   unsigned long new_msec = millis();
-  // wdt_reset();
-  // LED_Blink(11, last_msec, new_msec);  // Flash an LED on PWM pin 11
-  
-  boolean next_sec = (last_msec/msec_repeat != new_msec/msec_repeat);
-  if(next_sec) last_msec=new_msec;
+  boolean disp_update = (last_msec/msec_repeat != new_msec/msec_repeat);
+
+  if(disp_update) last_msec = new_msec;
 
   if (Serial.available() > 0) {
     tempbyte = Serial.read();
@@ -78,17 +97,16 @@ void loop()
        ((tempbyte >= (byte) 'a') && tempbyte <= 'z')) inbyte = tempbyte; // ignore any other than alpha chars
   }
 
-  if(inbyte != NULL || next_sec || t_wdt_int) {
-    read_clock(read_by); // read DS3231 registers
-
+  if(inbyte != NULL || disp_update || t_wdt_int) {
     switch (inbyte) {
     case 'R': // Output all registers
       print_DS3231_registers(read_by); // print out registers, reset alarms and reguest temp
-      read_clock(read_by);
+      read_Clock(read_by);
+      print_DS3231_registers(read_by); // print out registers, reset alarms and reguest temp
       break;
     case 'W': // Write Clock values
-      set_time();
-      read_clock(read_by);
+      set_Time();
+      read_Clock(read_by);
       break;
     case 'Y':
     case 'M':
@@ -96,24 +114,29 @@ void loop()
     case 'h':
     case 'm':
     case 's':
-      inc_datetime(inbyte, read_by);
+      inc_Datetime(inbyte, read_by);
     break;
     case 'b':
       display.setBrightness(0x0f & (bright++));
       Serial.println(0x0f & bright);
       break;
     default:;
+      read_Clock(read_by); // read DS3231 registers
+      break;
     }
-    print_time(read_by, new_msec);
+    decode_Time(read_by);
+    write_Disp();
+    print_Time(read_by, new_msec);
   }
-  enterSleep();
-  if (t_wdt_int) {
+  
+  enterSleep(); // Sleep to conserve power
+  if (t_wdt_int) { // reset the watchdog flag
 //    Serial.println("Watchdog");
     wdt_int = false;
   }
 }
 
-void inc_datetime(byte inbyte, byte *read_by) {
+void inc_Datetime(byte inbyte, byte *read_by) {
   byte addr, mask, mod;
   
   switch (inbyte) {
@@ -136,7 +159,7 @@ void inc_datetime(byte inbyte, byte *read_by) {
     addr = 0; mod = 60; mask = 0xff;
     break;
   }
-  byte newbyte = (1+(bcd2dec_byte(*(read_by+addr)) & mask)) % mod;
+  byte newbyte = (1+(bcd2dec_Byte(*(read_by+addr)) & mask)) % mod;
   (*(read_by+addr) + 1) % mod; // increment the value with wraping 
   newbyte = ((newbyte/10) << 4) | (newbyte % 10); // convert to BCD
 
@@ -146,15 +169,15 @@ void inc_datetime(byte inbyte, byte *read_by) {
   Wire.endTransmission();
 }
 
-unsigned short drm_serialno() {
+unsigned short drm_Serialno() {
   return(EEPROM.read(5) << 8 | EEPROM.read(6)); // combine two bytes into in serial number (drm specific)
 }
 
-byte bcd2dec_byte(byte in_byte) {
+byte bcd2dec_Byte(byte in_byte) {
   return (((in_byte & 0b11110000)>>4)*10 + (in_byte & 0b00001111));
 }
 
-void s_prt_lead0(long in, int places) {
+void s_Prt_lead0(long in, int places) {
   if(places>10 || places<2) return;
   in = abs(in); // only for positive numbers
   if(in < 1000000000) in = in + 1000000000; // extend smaller numbers
@@ -163,14 +186,14 @@ void s_prt_lead0(long in, int places) {
   Serial.print((out_str+(10-places)));
 }
 
-void clear_alarms(byte RTC_status) {
+void clear_Alarms(byte RTC_status) {
   Wire.beginTransmission(DS3231_addr); // DS3231_addr is DS3231 device address
   Wire.write((byte)0x0f); // Status Register
   Wire.write((RTC_status & (byte) 0xFC)); // clear the alarm flags
   Wire.endTransmission();      
 }  
 
-void convert_temp() {
+void setconvert_Temp() {
   Wire.beginTransmission(DS3231_addr); // DS3231_addr is DS3231 device address
   Wire.write((byte)0x0e); // start at register 0x0F Status Register
   Wire.endTransmission();
@@ -214,84 +237,84 @@ void DS3231_setup() {
   Wire.endTransmission();
 }
 
-void drm_start_print() {
+void drm_Start_print() {
   Serial.print(version); Serial.print(F(" SN#"));
-  Serial.println(drm_serialno());
+  Serial.println(drm_Serialno());
   Serial.print(F("Compiled-> "));
   Serial.print(F(__DATE__)); 
   Serial.print(F(" "));
   Serial.println(F(__TIME__));
 }
 
-void print_time(byte *read_by, long msecs) {
-    // The below are all BCD encoded with some high control bits on some
-    int seconds = read_by[0]; // get seconds
-    int minutes = read_by[1]; // get minutes
-    int hours = read_by[2];   // get hours
-    int dow = read_by[3];   // get day of week (Mon = 0)
-    int dom = read_by[4];   // get day of month
-    int month = read_by[5];   // get month number (Jan = 1)
-    int year = read_by[6];   // get year (last two digits)
-    byte csr = read_by[14];
-    byte sr = read_by[15];
-    seconds = bcd2dec_byte(seconds);
-    minutes = bcd2dec_byte(minutes);
-    hours = bcd2dec_byte(0x3F & hours);
-    dow = bcd2dec_byte(dow);
-    dom = bcd2dec_byte(dom);
-    month = bcd2dec_byte(0x1F & month);
-    year = bcd2dec_byte(year);
-    int int_year = 2000 + (100*(month>32)) + (long) year;
-    unsigned long lsec = seconds + 60*(minutes + 60*(hours + 24*dom));
-    
-    write_Disp(year, month, dom, hours, minutes, seconds, msecs);
+void decode_Time(byte *read_by) { // make sense out of the register valuse and put them in the global time structure time_bits
+  // The below are all BCD encoded with some high control bits on some
+  time_bits->seconds = read_by[0]; // get seconds
+  time_bits->minutes = read_by[1]; // get minutes
+  time_bits->hours = read_by[2];   // get hours
+  time_bits->dow = read_by[3];   // get day of week (Mon = 0)
+  time_bits->dom = read_by[4];   // get day of month
+  time_bits->month = read_by[5];   // get month number (Jan = 1)
+  time_bits->year = read_by[6];   // get year (last two digits)
+  time_bits->csr = read_by[14];
+  time_bits->sr = read_by[15];
+  time_bits->seconds = bcd2dec_Byte(time_bits->seconds);
+  time_bits->minutes = bcd2dec_Byte(time_bits->minutes);
+  time_bits->hours = bcd2dec_Byte(0x3F & time_bits->hours);
+  time_bits->dow = bcd2dec_Byte(time_bits->dow);
+  time_bits->dom = bcd2dec_Byte(time_bits->dom);
+  time_bits->month = bcd2dec_Byte(0x1F & time_bits->month);
+  time_bits->year = bcd2dec_Byte(time_bits->year);
+  time_bits->int_year = 2000 + (100*((int) time_bits->month>32)) + (int) time_bits->year;
+  time_bits->lsec = time_bits->seconds + 60*(time_bits->minutes + 60*(time_bits->hours + 24*time_bits->dom));
+}
 
-    s_prt_lead0(int_year,4); Serial.print(F("/"));
-    s_prt_lead0(month,2); Serial.print(F("/"));
-    s_prt_lead0(dom,2); Serial.print(F(" "));
+void print_Time(byte *read_by, long msecs) {
+    s_Prt_lead0(time_bits->int_year,4); Serial.print(F("/"));
+    s_Prt_lead0(time_bits->month,2); Serial.print(F("/"));
+    s_Prt_lead0(time_bits->dom,2); Serial.print(F(" "));
     
 // Human readable date and time
-    s_prt_lead0(hours,2); Serial.print(F(":"));
-    s_prt_lead0((long) minutes, 2); Serial.print(F(":"));
-    s_prt_lead0((long) seconds, 2);    
+    s_Prt_lead0(time_bits->hours,2); Serial.print(F(":"));
+    s_Prt_lead0((long) time_bits->minutes, 2); Serial.print(F(":"));
+    s_Prt_lead0((long) time_bits->seconds, 2);    
     Serial.print(F(" PST "));
 
 // Doug's date serial number to the second    
-    s_prt_lead0((long) int_year, 4);
-    s_prt_lead0((long) month, 2);
-    s_prt_lead0((long) dom, 2);
+    s_Prt_lead0((long) time_bits->int_year, 4);
+    s_Prt_lead0((long) time_bits->month, 2);
+    s_Prt_lead0((long) time_bits->dom, 2);
     Serial.print(F("_"));
-    s_prt_lead0((long) (hours & 0x3F), 2);
-    s_prt_lead0((long) minutes, 2);
-    s_prt_lead0((long) seconds, 2);
+    s_Prt_lead0((long) (time_bits->hours & 0x3F), 2);
+    s_Prt_lead0((long) time_bits->minutes, 2);
+    s_Prt_lead0((long) time_bits->seconds, 2);
 
 //  Temperature
     Serial.print(F(" T-> "));
     Serial.print(read_by[17]);
     Serial.print(F("."));
-    s_prt_lead0((long) (read_by[18] >> 6)*25, 2);
+    s_Prt_lead0((long) (read_by[18] >> 6)*25, 2);
     Serial.print(F("C"));
     long Ftemp = 3200 + ((read_by[17]*100 + (read_by[18] >> 6)*25)*9)/5;
     Serial.print(F("/"));
     Serial.print(Ftemp/100);
     Serial.print(F("."));
-    s_prt_lead0(Ftemp%100, 2);
+    s_Prt_lead0(Ftemp%100, 2);
     Serial.print(F("F"));
     
 // Delta seconds    
     Serial.print(F(" dS-> "));
-    Serial.print(lsec - last_sec); 
-    last_sec = lsec;
+    Serial.print(time_bits->lsec - last_sec); 
+    last_sec = time_bits->lsec;
 
 // Status flags
-    if((sr & 0x04) != 0) Serial.print(F("  Bsy"));
-    if((sr & 0x01) != 0) Serial.print(F("  A0"));
-    if((sr & 0x02) != 0) Serial.print(F("  A1"));
+    if((time_bits->sr & 0x04) != 0) Serial.print(F("  Bsy"));
+    if((time_bits->sr & 0x01) != 0) Serial.print(F("  A0"));
+    if((time_bits->sr & 0x02) != 0) Serial.print(F("  A1"));
 
     Serial.println("");
 }
 
-void set_time() { // This is how I bootstrap the time on the DS3231, you must hardcode the setup time
+void set_Time() { // This is how I bootstrap the time on the DS3231, you must hardcode the setup time
   Wire.beginTransmission(DS3231_addr);
 //  Set Time
   Wire.write((byte) 0x00); // start at register 0
@@ -307,7 +330,7 @@ void set_time() { // This is how I bootstrap the time on the DS3231, you must ha
   Wire.endTransmission();
 }
 
-void read_clock(byte *read_by) {
+void read_Clock(byte *read_by) {
   int i;
   Wire.beginTransmission(DS3231_addr); // DS3231_addr is DS3231 device address
   Wire.write((byte)0); // start at register 0
@@ -318,7 +341,7 @@ void read_clock(byte *read_by) {
 }
 
 void print_DS3231_registers(byte *read_by) {
-  convert_temp();
+  setconvert_Temp();
   Serial.print(F("DigIn[5]-> ")); Serial.println(digitalRead(5));
   for (int i=0; i<num_regs; i++) {
     if(read_by[i]<16) Serial.print(F("0"));
@@ -326,36 +349,44 @@ void print_DS3231_registers(byte *read_by) {
     Serial.print(F(" "));
   }
   Serial.println("");
-  clear_alarms(read_by[15]);
+  clear_Alarms(read_by[15]);
 }
 
-/*
-boolean LED_Blink(int pin, unsigned long last_msec, unsigned long new_msec) {
-  // Flash an LED on PWM pin 11
-  const unsigned long period=2000;
-  int intensity=254;
-  if (new_msec % period < period/2) intensity = 0;
-  analogWrite(pin, intensity);
-  return(intensity);
-}
-*/
-
-void write_Disp(int year,int month,int dom, int hours, int minutes, int seconds, long msecs) {
+void write_Disp() {
   int num;
   byte colon=0x00;
   byte digits[4]={0,0,0,0};
-  int num_hi = hours;
-  int num_lo = minutes;
+  int num_hi = time_bits->hours;
+  int num_lo = time_bits->minutes;
 
-  if((msecs % 1000) < (int) 500) colon=0x80;
-  if(seconds >= 2 && seconds <= 5) {
+  Serial.print("Colon-> ");
+  Serial.print(prev_2dig_sec);
+  Serial.print(" - ");
+  Serial.print(time_bits->seconds);
+  Serial.print(" - ");
+  Serial.print(per_sec/2);
+  Serial.print(" - ");
+  Serial.print(sub_sec);
+  Serial.println("");
+  
+  if(prev_2dig_sec != time_bits->seconds) {
+    sub_sec=0;
+    prev_2dig_sec = time_bits->seconds;
+  }
+
+  sub_sec++;
+  if(sub_sec > (per_sec/2)) {
+    colon=0x80; // prev_2dig_sec
+  }
+  
+  if(time_bits->seconds >= 2 && time_bits->seconds <= 5) {
     num_hi = 20;
-    num_lo = year;
+    num_lo = time_bits->year;
     colon = 0;
   }
-  else if (seconds >= 6 && seconds <= 8) {
-    num_hi = month;
-    num_lo = dom;
+  else if (time_bits->seconds >= 6 && time_bits->seconds <= 8) {
+    num_hi = time_bits->month;
+    num_lo = time_bits->dom;
     colon=0x80;    
   }
   digits[0]=display.encodeDigit(num_hi/10);
