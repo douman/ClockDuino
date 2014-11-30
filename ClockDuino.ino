@@ -8,10 +8,23 @@
 #include <EEPROM.h>
 #include <TM1637Display.h>
 
+const char *version="ClockDuino -> V6.1.0-20141130 ";
+// A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
+// Works with both now, china module has memory also.
+// shows date at top of minute now with V4
+// Major rework of UI and add watchdog with V5
+//
+
 // Display Module connection pins (Digital Pins)
 #define DISP_CLK 4
 #define DISP_DIO 2
 #define LED_PIN (13)
+
+volatile boolean wdt_int;
+
+const long msec_repeat=250;
+const int num_regs = 19;
+const int DS3231_addr = 0x68; // DS3231 I2C address ChronoDot
 
 typedef struct parseTime {
   byte seconds;
@@ -26,7 +39,6 @@ typedef struct parseTime {
   int int_year;
   unsigned long lsec;
 };
-
 struct parseTime time_bits[1];
     
 /*
@@ -45,21 +57,9 @@ struct parseTime time_bits[1];
         1 0 0 0 512K   (524288) cycles   4.0 s
         1 0 0 1 1024K  (1048576)cycles   8.0 s
  */
-const byte wdt_Setup = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (0<<WDP2) | (1<<WDP1) | (1<<WDP0); // 0.25 sec
-const byte per_sec = 2; // update to be the inverse of the period (might need to be adjusted, used to 
-                        // blink the colon)
-volatile boolean wdt_int;
+const byte wdt_Setup = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (0<<WDP2) | (1<<WDP1) | (1<<WDP0); // 0.125 sec
+byte per_sec = 2; // will be updated automatically
 
-const char *version="ClockDuino -> V6.0.0-20141129 ";
-// A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
-// Works with both now, china module has memory also.
-// shows date at top of minute now with V4
-// Major rework of UI and add watchdog with V5
-//
-const long msec_repeat=250;
-const int num_regs = 19;
-const int DS3231_addr = 0x68; // DS3231 I2C address ChronoDot
-// const int DS3231_addr = 0x57; // DS3231 I2C address China Board
 unsigned long last_msec = 9999999; // initialize to weird value to assure quick first read
 unsigned long last_sec=0;
 byte bright = 0x0f;
@@ -359,6 +359,7 @@ void write_Disp() {
   int num_hi = time_bits->hours;
   int num_lo = time_bits->minutes;
 
+/*
   Serial.print("Colon-> ");
   Serial.print(prev_2dig_sec);
   Serial.print(" - ");
@@ -368,8 +369,11 @@ void write_Disp() {
   Serial.print(" - ");
   Serial.print(sub_sec);
   Serial.println("");
+ */
   
   if(prev_2dig_sec != time_bits->seconds) {
+    per_sec = max(per_sec, sub_sec);
+    Serial.println(per_sec);
     sub_sec=0;
     prev_2dig_sec = time_bits->seconds;
   }
