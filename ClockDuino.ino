@@ -23,8 +23,9 @@ const char *version="ClockDuino -> V6.1.0-20141130 ";
 volatile boolean wdt_int; // This is changed in the ISR for the watchdog
 
 const long msec_repeat=250;
-const int num_regs = 19;
-const int DS3231_addr = 0x68; // DS3231 I2C address ChronoDot
+const byte print_every=2;
+const int num_regs=19;
+const int DS3231_addr=0x68; // DS3231 I2C address ChronoDot
 
 typedef struct parseTime {
   byte seconds;
@@ -57,11 +58,12 @@ struct parseTime time_bits[1];
         1 0 0 0 512K   (524288) cycles   4.0 s
         1 0 0 1 1024K  (1048576)cycles   8.0 s
  */
-const byte wdt_Setup = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (0<<WDP2) | (1<<WDP1) | (1<<WDP0); // 0.125 sec
+const byte wdt_Setup = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (0<<WDP2) | (1<<WDP1) | (0<<WDP0); // 0.125 sec
 byte per_sec = 2; // will be updated automatically
 
 unsigned long last_msec = 9999999; // initialize to weird value to assure quick first read
 unsigned long last_sec=0;
+boolean already=false;
 byte bright = 0x0f;
 
 byte sub_sec = 0;
@@ -126,7 +128,15 @@ void loop()
     }
     decode_Time(read_by);
     write_Disp();
-    print_Time(read_by, new_msec);
+    if(((time_bits->seconds) % print_every) == 0) {
+      if (! already) {
+        print_Time(read_by, new_msec);
+        already = true;
+      }  
+    }
+    else {
+      already = false;
+    }
   }
   
   enterSleep(); // Sleep to conserve power
@@ -144,10 +154,10 @@ void inc_Datetime(byte inbyte, byte *read_by) {
     addr = 6; mod = 100; mask = 0xff;
     break;
   case 'M': 
-    addr = 5; mod = 12; mask = 0x1f;
+    addr = 5; mod = 13; mask = 0x1f;
     break;
   case 'D':
-    addr = 4; mod = 31; mask = 0xff;
+    addr = 4; mod = 32; mask = 0xff;
     break;
   case 'h':
     addr = 2; mod = 24; mask = 0x3f;
@@ -159,8 +169,8 @@ void inc_Datetime(byte inbyte, byte *read_by) {
     addr = 0; mod = 60; mask = 0xff;
     break;
   }
-  byte newbyte = (1+(bcd2dec_Byte(*(read_by+addr)) & mask)) % mod;
-  (*(read_by+addr) + 1) % mod; // increment the value with wraping 
+  byte newbyte = (bcd2dec_Byte(*(read_by+addr)) & mask);
+  newbyte = newbyte++ % mod; // increment the value with wraping 
   newbyte = ((newbyte/10) << 4) | (newbyte % 10); // convert to BCD
 
   Wire.beginTransmission(DS3231_addr); // DS3231_addr is DS3231 device address
@@ -373,7 +383,6 @@ void write_Disp() {
   
   if(prev_2dig_sec != time_bits->seconds) {
     per_sec = max(per_sec, sub_sec);
-    Serial.println(per_sec);
     sub_sec=0;
     prev_2dig_sec = time_bits->seconds;
   }
@@ -432,7 +441,15 @@ ISR( WDT_vect ) {
 void enterSleep(void)
 {
   digitalWrite(LED_BUILTIN, LOW);
-  set_sleep_mode(SLEEP_MODE_PWR_DOWN);   /* EDIT: could also use SLEEP_MODE_PWR_DOWN, SLEEP_MODE_PWR_SAVE for lowest power consumption. */
+/*
+ * The 5 different modes are:
+ *     SLEEP_MODE_IDLE         -the least power savings
+ *     SLEEP_MODE_ADC
+ *     SLEEP_MODE_PWR_SAVE
+ *     SLEEP_MODE_STANDBY
+ *     SLEEP_MODE_PWR_DOWN     -the most power savings
+ */
+     set_sleep_mode(SLEEP_MODE_IDLE);   /* EDIT: could also use SLEEP_MODE_PWR_DOWN, SLEEP_MODE_PWR_SAVE for lowest power consumption. */
   Serial.flush();
   // delay(10);
   sleep_enable();
