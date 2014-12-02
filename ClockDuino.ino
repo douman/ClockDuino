@@ -18,9 +18,9 @@ const char *version="ClockDuino -> V6.1.0-20141130 ";
 // Display Module connection pins (Digital Pins)
 #define DISP_CLK 4
 #define DISP_DIO 2
-#define LED_PIN (13)
+// We use the IDE defined symbol LED_BUILTIN
 
-volatile boolean wdt_int;
+volatile boolean wdt_int; // This is changed in the ISR for the watchdog
 
 const long msec_repeat=250;
 const int num_regs = 19;
@@ -75,7 +75,7 @@ void setup()
   watchdogSetup();
   Wire.begin();
   DS3231_setup();
-  pinMode(LED_PIN,OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
   drm_Start_print();
   display.setBrightness(bright);
 }
@@ -431,7 +431,7 @@ ISR( WDT_vect ) {
 
 void enterSleep(void)
 {
-  digitalWrite(LED_PIN, LOW);
+  digitalWrite(LED_BUILTIN, LOW);
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);   /* EDIT: could also use SLEEP_MODE_PWR_DOWN, SLEEP_MODE_PWR_SAVE for lowest power consumption. */
   Serial.flush();
   // delay(10);
@@ -442,7 +442,7 @@ void enterSleep(void)
   
   /* The program will continue from here after the WDT timeout*/
   sleep_disable(); /* First thing to do is disable sleep. */
-  digitalWrite(LED_PIN, HIGH);
+  digitalWrite(LED_BUILTIN, HIGH);
   
   /* Re-enable the peripherals. */
   power_all_enable();
