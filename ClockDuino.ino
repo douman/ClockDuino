@@ -8,7 +8,7 @@
 #include <EEPROM.h>
 #include <TM1637Display.h>
 
-const char *version="ClockDuino -> V6.1.0-20141130 ";
+const char *version="ClockDuino -> V6.2.0-20141202 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
 // Works with both now, china module has memory also.
 // shows date at top of minute now with V4
@@ -37,7 +37,7 @@ typedef struct parseTime {
   byte year;
   byte csr;
   byte sr;
-  int int_year;
+  int int_year;R
   unsigned long lsec;
 };
 struct parseTime time_bits[1];
@@ -105,10 +105,12 @@ void loop()
       print_DS3231_registers(read_by); // print out registers, reset alarms and reguest temp
       read_Clock(read_by);
       print_DS3231_registers(read_by); // print out registers, reset alarms and reguest temp
+      print_Time(read_by, new_msec);
       break;
     case 'W': // Write Clock values
       set_Time();
       read_Clock(read_by);
+      print_Time(read_by, new_msec);
       break;
     case 'Y':
     case 'M':
