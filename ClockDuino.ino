@@ -8,11 +8,12 @@
 #include <EEPROM.h>
 #include <TM1637Display.h>
 
-const char *version="ClockDuino -> V6.2.0-20141202 ";
+const char *version="ClockDuino -> V6.3.0-20141212 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
 // Works with both now, china module has memory also.
 // shows date at top of minute now with V4
 // Major rework of UI and add watchdog with V5
+// Now shows temp at 45 sec for 3 sec with V6.3.0
 //
 
 // Display Module connection pins (Digital Pins)
@@ -37,10 +38,11 @@ typedef struct parseTime {
   byte year;
   byte csr;
   byte sr;
-  int int_year;R
+  int int_year;
   unsigned long lsec;
+  long tempf;
 };
-struct parseTime time_bits[1];
+struct parseTime time_struct[1];
     
 /*
   See table Pg 55 datasheet for time-out variations:
@@ -130,7 +132,7 @@ void loop()
     }
     decode_Time(read_by);
     write_Disp();
-    if(((time_bits->seconds) % print_every) == 0) {
+    if(((time_struct->seconds) % print_every) == 0) {
       if (! already) {
         print_Time(read_by, new_msec);
         already = true;
@@ -258,47 +260,47 @@ void drm_Start_print() {
   Serial.println(F(__TIME__));
 }
 
-void decode_Time(byte *read_by) { // make sense out of the register valuse and put them in the global time structure time_bits
+void decode_Time(byte *read_by) { // make sense out of the register valuse and put them in the global time structure time_struct
   // The below are all BCD encoded with some high control bits on some
-  time_bits->seconds = read_by[0]; // get seconds
-  time_bits->minutes = read_by[1]; // get minutes
-  time_bits->hours = read_by[2];   // get hours
-  time_bits->dow = read_by[3];   // get day of week (Mon = 0)
-  time_bits->dom = read_by[4];   // get day of month
-  time_bits->month = read_by[5];   // get month number (Jan = 1)
-  time_bits->year = read_by[6];   // get year (last two digits)
-  time_bits->csr = read_by[14];
-  time_bits->sr = read_by[15];
-  time_bits->seconds = bcd2dec_Byte(time_bits->seconds);
-  time_bits->minutes = bcd2dec_Byte(time_bits->minutes);
-  time_bits->hours = bcd2dec_Byte(0x3F & time_bits->hours);
-  time_bits->dow = bcd2dec_Byte(time_bits->dow);
-  time_bits->dom = bcd2dec_Byte(time_bits->dom);
-  time_bits->month = bcd2dec_Byte(0x1F & time_bits->month);
-  time_bits->year = bcd2dec_Byte(time_bits->year);
-  time_bits->int_year = 2000 + (100*((int) time_bits->month>32)) + (int) time_bits->year;
-  time_bits->lsec = time_bits->seconds + 60*(time_bits->minutes + 60*(time_bits->hours + 24*time_bits->dom));
+  time_struct->seconds = read_by[0]; // get seconds
+  time_struct->minutes = read_by[1]; // get minutes
+  time_struct->hours = read_by[2];   // get hours
+  time_struct->dow = read_by[3];   // get day of week (Mon = 0)
+  time_struct->dom = read_by[4];   // get day of month
+  time_struct->month = read_by[5];   // get month number (Jan = 1)
+  time_struct->year = read_by[6];   // get year (last two digits)
+  time_struct->csr = read_by[14];
+  time_struct->sr = read_by[15];
+  time_struct->seconds = bcd2dec_Byte(time_struct->seconds);
+  time_struct->minutes = bcd2dec_Byte(time_struct->minutes);
+  time_struct->hours = bcd2dec_Byte(0x3F & time_struct->hours);
+  time_struct->dow = bcd2dec_Byte(time_struct->dow);
+  time_struct->dom = bcd2dec_Byte(time_struct->dom);
+  time_struct->month = bcd2dec_Byte(0x1F & time_struct->month);
+  time_struct->year = bcd2dec_Byte(time_struct->year);
+  time_struct->int_year = 2000 + (100*((int) time_struct->month>32)) + (int) time_struct->year;
+  time_struct->lsec = time_struct->seconds + 60*(time_struct->minutes + 60*(time_struct->hours + 24*time_struct->dom));
 }
 
 void print_Time(byte *read_by, long msecs) {
-    s_Prt_lead0(time_bits->int_year,4); Serial.print(F("/"));
-    s_Prt_lead0(time_bits->month,2); Serial.print(F("/"));
-    s_Prt_lead0(time_bits->dom,2); Serial.print(F(" "));
+    s_Prt_lead0(time_struct->int_year,4); Serial.print(F("/"));
+    s_Prt_lead0(time_struct->month,2); Serial.print(F("/"));
+    s_Prt_lead0(time_struct->dom,2); Serial.print(F(" "));
     
 // Human readable date and time
-    s_Prt_lead0(time_bits->hours,2); Serial.print(F(":"));
-    s_Prt_lead0((long) time_bits->minutes, 2); Serial.print(F(":"));
-    s_Prt_lead0((long) time_bits->seconds, 2);    
+    s_Prt_lead0(time_struct->hours,2); Serial.print(F(":"));
+    s_Prt_lead0((long) time_struct->minutes, 2); Serial.print(F(":"));
+    s_Prt_lead0((long) time_struct->seconds, 2);    
     Serial.print(F(" PST "));
 
 // Doug's date serial number to the second    
-    s_Prt_lead0((long) time_bits->int_year, 4);
-    s_Prt_lead0((long) time_bits->month, 2);
-    s_Prt_lead0((long) time_bits->dom, 2);
+    s_Prt_lead0((long) time_struct->int_year, 4);
+    s_Prt_lead0((long) time_struct->month, 2);
+    s_Prt_lead0((long) time_struct->dom, 2);
     Serial.print(F("_"));
-    s_Prt_lead0((long) (time_bits->hours & 0x3F), 2);
-    s_Prt_lead0((long) time_bits->minutes, 2);
-    s_Prt_lead0((long) time_bits->seconds, 2);
+    s_Prt_lead0((long) (time_struct->hours & 0x3F), 2);
+    s_Prt_lead0((long) time_struct->minutes, 2);
+    s_Prt_lead0((long) time_struct->seconds, 2);
 
 //  Temperature
     Serial.print(F(" T-> "));
@@ -306,22 +308,22 @@ void print_Time(byte *read_by, long msecs) {
     Serial.print(F("."));
     s_Prt_lead0((long) (read_by[18] >> 6)*25, 2);
     Serial.print(F("C"));
-    long Ftemp = 3200 + ((read_by[17]*100 + (read_by[18] >> 6)*25)*9)/5;
+    time_struct->tempf = 3200 + ((read_by[17]*100 + (read_by[18] >> 6)*25)*9)/5;
     Serial.print(F("/"));
-    Serial.print(Ftemp/100);
+    Serial.print(time_struct->tempf/100);
     Serial.print(F("."));
-    s_Prt_lead0(Ftemp%100, 2);
+    s_Prt_lead0(time_struct->tempf%100, 2);
     Serial.print(F("F"));
     
 // Delta seconds    
     Serial.print(F(" dS-> "));
-    Serial.print(time_bits->lsec - last_sec); 
-    last_sec = time_bits->lsec;
+    Serial.print(time_struct->lsec - last_sec); 
+    last_sec = time_struct->lsec;
 
 // Status flags
-    if((time_bits->sr & 0x04) != 0) Serial.print(F("  Bsy"));
-    if((time_bits->sr & 0x01) != 0) Serial.print(F("  A0"));
-    if((time_bits->sr & 0x02) != 0) Serial.print(F("  A1"));
+    if((time_struct->sr & 0x04) != 0) Serial.print(F("  Bsy"));
+    if((time_struct->sr & 0x01) != 0) Serial.print(F("  A0"));
+    if((time_struct->sr & 0x02) != 0) Serial.print(F("  A1"));
 
     Serial.println("");
 }
@@ -368,14 +370,14 @@ void write_Disp() {
   int num;
   byte colon=0x00;
   byte digits[4]={0,0,0,0};
-  int num_hi = time_bits->hours;
-  int num_lo = time_bits->minutes;
+  int num_hi = time_struct->hours;
+  int num_lo = time_struct->minutes;
 
 /*
   Serial.print("Colon-> ");
   Serial.print(prev_2dig_sec);
   Serial.print(" - ");
-  Serial.print(time_bits->seconds);
+  Serial.print(time_struct->seconds);
   Serial.print(" - ");
   Serial.print(per_sec/2);
   Serial.print(" - ");
@@ -383,10 +385,10 @@ void write_Disp() {
   Serial.println("");
  */
   
-  if(prev_2dig_sec != time_bits->seconds) {
+  if(prev_2dig_sec != time_struct->seconds) {
     per_sec = max(per_sec, sub_sec);
     sub_sec=0;
-    prev_2dig_sec = time_bits->seconds;
+    prev_2dig_sec = time_struct->seconds;
   }
 
   sub_sec++;
@@ -394,20 +396,29 @@ void write_Disp() {
     colon=0x80; // prev_2dig_sec
   }
   
-  if(time_bits->seconds >= 2 && time_bits->seconds <= 5) {
+  if(time_struct->seconds >= 2 && time_struct->seconds <= 5) {
     num_hi = 20;
-    num_lo = time_bits->year;
-    colon = 0;
+    num_lo = time_struct->year;
+    colon = 0x00;
   }
-  else if (time_bits->seconds >= 6 && time_bits->seconds <= 8) {
-    num_hi = time_bits->month;
-    num_lo = time_bits->dom;
+  else if (time_struct->seconds >= 6 && time_struct->seconds <= 8) {
+    num_hi = time_struct->month;
+    num_lo = time_struct->dom;
     colon=0x80;    
   }
+  else if (time_struct->seconds >= 46 && time_struct->seconds <= 48) {
+    num_hi = (time_struct->tempf+50)/10000;
+    num_lo = ((time_struct->tempf+50)%10000)/100;
+    colon = 0x00;
+  }
   digits[0]=display.encodeDigit(num_hi/10);
-  digits[1]=display.encodeDigit(num_hi - 10*(num_hi/10)) | colon;
+  digits[1]=display.encodeDigit(num_hi%10) | colon;
+  if(num_hi/10==0) {
+    digits[0]=0x00;
+    if(num_hi%10==0) digits[1]=0x00;
+  }
   digits[2]=display.encodeDigit(num_lo/10);
-  digits[3]=display.encodeDigit(num_lo - 10*(num_lo/10));
+  digits[3]=display.encodeDigit(num_lo%10);
   
   display.setSegments(digits);
 }
