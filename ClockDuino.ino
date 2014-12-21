@@ -8,7 +8,7 @@
 #include <EEPROM.h>
 #include <TM1637Display.h>
 
-const char *version="ClockDuino -> V6.3.0-20141212 ";
+const char *version="ClockDuino -> V6.3.1-20141220 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
 // Works with both now, china module has memory also.
 // shows date at top of minute now with V4
@@ -372,6 +372,7 @@ void write_Disp() {
   byte digits[4]={0,0,0,0};
   int num_hi = time_struct->hours;
   int num_lo = time_struct->minutes;
+  boolean time=true;
 
 /*
   Serial.print("Colon-> ");
@@ -400,22 +401,25 @@ void write_Disp() {
     num_hi = 20;
     num_lo = time_struct->year;
     colon = 0x00;
+    time = false;
   }
   else if (time_struct->seconds >= 6 && time_struct->seconds <= 8) {
     num_hi = time_struct->month;
     num_lo = time_struct->dom;
     colon=0x80;    
+    time = false;
   }
   else if (time_struct->seconds >= 46 && time_struct->seconds <= 48) {
     num_hi = (time_struct->tempf+50)/10000;
     num_lo = ((time_struct->tempf+50)%10000)/100;
     colon = 0x00;
+    time = false;
   }
   digits[0]=display.encodeDigit(num_hi/10);
   digits[1]=display.encodeDigit(num_hi%10) | colon;
-  if(num_hi/10==0) {
+  if(! time && num_hi/10==0) {
     digits[0]=0x00;
-    if(num_hi%10==0) digits[1]=0x00;
+    if(num_hi%10==0) digits[1]=0x00 | colon;
   }
   digits[2]=display.encodeDigit(num_lo/10);
   digits[3]=display.encodeDigit(num_lo%10);
