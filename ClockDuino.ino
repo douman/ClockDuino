@@ -151,17 +151,17 @@ void loop()
 }
 
 void inc_Datetime(byte inbyte, byte *read_by) {
-  byte addr, mask, mod;
+  byte addr, mask, mod, offset=0;
   
   switch (inbyte) {
   case 'Y':
     addr = 6; mod = 100; mask = 0xff;
     break;
   case 'M': 
-    addr = 5; mod = 13; mask = 0x1f;
+    addr = 5; mod = 12; mask = 0x1f; offset = 1;
     break;
   case 'D':
-    addr = 4; mod = 32; mask = 0xff;
+    addr = 4; mod = 31; mask = 0xff; offset = 1; // this will result in unreal dates, you have to set it right
     break;
   case 'h':
     addr = 2; mod = 24; mask = 0x3f;
@@ -174,7 +174,9 @@ void inc_Datetime(byte inbyte, byte *read_by) {
     break;
   }
   byte newbyte = (bcd2dec_Byte(*(read_by+addr)) & mask);
-  newbyte = newbyte++ % mod; // increment the value with wraping 
+//  Serial.print("newbyte1-> "); Serial.println(newbyte);
+  newbyte = ((++newbyte - offset) % mod) + offset; // pre-increment the value with wraping 
+//  Serial.print("newbyte2-> "); Serial.println(newbyte);
   newbyte = ((newbyte/10) << 4) | (newbyte % 10); // convert to BCD
 
   Wire.beginTransmission(DS3231_addr); // DS3231_addr is DS3231 device address
