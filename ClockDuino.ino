@@ -8,7 +8,7 @@
 #include <EEPROM.h>
 #include <TM1637Display.h>
 
-const char *version="ClockDuino -> V6.3.3-20141230 ";
+const char *version="ClockDuino -> V6.3.4-20150101 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
 // Works with both now, china module has memory also.
 // shows date at top of minute now with V4
@@ -23,8 +23,8 @@ const char *version="ClockDuino -> V6.3.3-20141230 ";
 
 volatile boolean wdt_int; // This is changed in the ISR for the watchdog
 
-const long msec_repeat=2500;
-const byte print_every=10;
+const long msec_repeat=500;
+const byte print_every=2;
 const int num_regs=19;
 const int DS3231_addr=0x68; // DS3231 I2C address ChronoDot
 
