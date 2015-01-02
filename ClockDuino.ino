@@ -8,7 +8,7 @@
 #include <EEPROM.h>
 #include <TM1637Display.h>
 
-const char *version="ClockDuino -> V6.3.2-20141222 ";
+const char *version="ClockDuino -> V6.3.3-20141230 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
 // Works with both now, china module has memory also.
 // shows date at top of minute now with V4
@@ -23,8 +23,8 @@ const char *version="ClockDuino -> V6.3.2-20141222 ";
 
 volatile boolean wdt_int; // This is changed in the ISR for the watchdog
 
-const long msec_repeat=250;
-const byte print_every=2;
+const long msec_repeat=2500;
+const byte print_every=10;
 const int num_regs=19;
 const int DS3231_addr=0x68; // DS3231 I2C address ChronoDot
 
@@ -60,7 +60,7 @@ struct parseTime time_struct[1];
         1 0 0 0 512K   (524288) cycles   4.0 s
         1 0 0 1 1024K  (1048576)cycles   8.0 s
  */
-const byte wdt_Setup = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (0<<WDP2) | (1<<WDP1) | (0<<WDP0); // 0.125 sec
+const byte wdt_Setup = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (0<<WDP2) | (1<<WDP1) | (1<<WDP0); // 0.25 sec
 byte per_sec = 2; // will be updated automatically
 
 unsigned long last_msec = 9999999; // initialize to weird value to assure quick first read
@@ -145,7 +145,6 @@ void loop()
   
   enterSleep(); // Sleep to conserve power
   if (t_wdt_int) { // reset the watchdog flag
-//    Serial.println("Watchdog");
     wdt_int = false;
   }
 }
@@ -440,20 +439,19 @@ void watchdogSetup(void)
  */
 // Enter Watchdog Configuration mode:
   WDTCSR |= (1<<WDCE) | (1<<WDE);
-// Set Watchdog time (2 s) and results:
+// Set Watchdog time
   WDTCSR = wdt_Setup;
   sei(); // enable interrupts
-  delayMicroseconds(100);
 }
+
 ISR( WDT_vect ) {
-  /* dummy */
   cli(); // disable interrupts
   wdt_reset();
 // Enter Watchdog Configuration mode:
   WDTCSR |= (1<<WDCE) | (1<<WDE);
-// Set Watchdog time (2 s) and results:
+// Set Watchdog time
   WDTCSR = wdt_Setup;
-  wdt_int = true;
+  wdt_int = true; // signal to main loop that the watchdog has fired
   sei(); // enable interrupts
 }
 
@@ -468,9 +466,8 @@ void enterSleep(void)
  *     SLEEP_MODE_STANDBY
  *     SLEEP_MODE_PWR_DOWN     -the most power savings
  */
-     set_sleep_mode(SLEEP_MODE_IDLE);   /* EDIT: could also use SLEEP_MODE_PWR_DOWN, SLEEP_MODE_PWR_SAVE for lowest power consumption. */
+     set_sleep_mode(SLEEP_MODE_PWR_DOWN);   /* EDIT: could also use SLEEP_MODE_PWR_DOWN, SLEEP_MODE_PWR_SAVE for lowest power consumption. */
   Serial.flush();
-  // delay(10);
   sleep_enable();
   
   /* Now enter sleep mode. */
