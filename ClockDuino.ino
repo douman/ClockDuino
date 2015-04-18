@@ -8,12 +8,13 @@
 #include <EEPROM.h>
 #include <TM1637Display.h>
 
-const char *version="ClockDuino -> V6.3.4-20150101 ";
+const char *version="ClockDuino -> V6.3.5-20150418 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
 // Works with both now, china module has memory also.
 // shows date at top of minute now with V4
 // Major rework of UI and add watchdog with V5
 // Now shows temp at 45 sec for 3 sec with V6.3.0
+// V6.3.5 Updated with V1.6.3 of the Dev Suite
 //
 
 // Display Module connection pins (Digital Pins)
