@@ -293,7 +293,8 @@ void print_Time(byte *read_by, long msecs) {
     s_Prt_lead0(time_struct->hours,2); Serial.print(F(":"));
     s_Prt_lead0((long) time_struct->minutes, 2); Serial.print(F(":"));
     s_Prt_lead0((long) time_struct->seconds, 2);    
-    Serial.print(F(" PST "));
+    Serial.print(F(" PDT "));    
+//    Serial.print(F(" PST "));
 
 // Doug's date serial number to the second    
     s_Prt_lead0((long) time_struct->int_year, 4);
@@ -319,7 +320,7 @@ void print_Time(byte *read_by, long msecs) {
     
 // Delta seconds    
     Serial.print(F(" dS-> "));
-    Serial.print(time_struct->lsec - last_sec); 
+    if ((time_struct->lsec - last_sec) < 30000) Serial.print(time_struct->lsec - last_sec); // Skip print when huge (startup)
     last_sec = time_struct->lsec;
 
 // Status flags
