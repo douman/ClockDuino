@@ -8,14 +8,17 @@
 #include <EEPROM.h>
 #include <TM1637Display.h>
 
-const char *version="ClockDuino -> V6.3.5-20150418 ";
-// A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008 
+const char *version="ClockDuino -> V6.4.0-20151116 ";
+// A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008
+// alice1101983 also has lots of good stuff
 // Works with both now, china module has memory also.
 // shows date at top of minute now with V4
 // Major rework of UI and add watchdog with V5
 // Now shows temp at 45 sec for 3 sec with V6.3.0
 // V6.3.5 Updated with V1.6.3 of the Dev Suite
-//
+// V6.3.6 made BAUD const long and getting ready for some things in library drm
+// V6.3.7 now have problem with finding the TM1637 library, have to fix! is it an Arduino IDE issue?
+// V6.4.0 don't sleep for 10 cycles when in the "set" process
 
 // Display Module connection pins (Digital Pins)
 #define DISP_CLK 4
@@ -28,6 +31,7 @@ const long msec_repeat=500;
 const byte print_every=2;
 const int num_regs=19;
 const int DS3231_addr=0x68; // DS3231 I2C address ChronoDot
+const long BAUD=115200;
 
 typedef struct parseTime {
   byte seconds;
@@ -63,6 +67,7 @@ struct parseTime time_struct[1];
  */
 const byte wdt_Setup = (1<<WDIE) | (1<<WDE) | (0<<WDP3) | (0<<WDP2) | (1<<WDP1) | (1<<WDP0); // 0.25 sec
 byte per_sec = 2; // will be updated automatically
+byte cycle_down_cnt = 0;
 
 unsigned long last_msec = 9999999; // initialize to weird value to assure quick first read
 unsigned long last_sec=0;
@@ -76,7 +81,7 @@ TM1637Display display(DISP_CLK, DISP_DIO);
 
 void setup()
 {
-  Serial.begin(115200);
+  Serial.begin(BAUD);
   watchdogSetup();
   Wire.begin();
   DS3231_setup();
@@ -103,6 +108,7 @@ void loop()
   }
 
   if(inbyte != NULL || disp_update || t_wdt_int) {
+    cycle_down_cnt = 10; // set counter for 10 cycles without sleep
     switch (inbyte) {
     case 'R': // Output all registers
       print_DS3231_registers(read_by); // print out registers, reset alarms and reguest temp
@@ -115,15 +121,15 @@ void loop()
       read_Clock(read_by);
       print_Time(read_by, new_msec);
       break;
-    case 'Y':
-    case 'M':
-    case 'D':
-    case 'h':
-    case 'm':
-    case 's':
+    case 'Y': // Increment Year
+    case 'M': // Increment Month
+    case 'D': // Increment Day
+    case 'h': // Increment hour
+    case 'm': // Increment minute
+    case 's': // Increment second
       inc_Datetime(inbyte, read_by);
     break;
-    case 'b':
+    case 'b': // cycle through brightness values
       display.setBrightness(0x0f & (bright++));
       Serial.println(0x0f & bright);
       break;
@@ -136,6 +142,7 @@ void loop()
     if(((time_struct->seconds) % print_every) == 0) {
       if (! already) {
         print_Time(read_by, new_msec);
+        if(cycle_down_cnt > 0) cycle_down_cnt -= 1;
         already = true;
       }  
     }
@@ -209,8 +216,8 @@ void clear_Alarms(byte RTC_status) {
   Wire.endTransmission();      
 }  
 
-void setconvert_Temp() {
-  Wire.beginTransmission(DS3231_addr); // DS3231_addr is DS3231 device address
+void setconvert_Temp() { // I need to figure out what this does!
+Wire.beginTransmission(DS3231_addr); // DS3231_addr is DS3231 device address
   Wire.write((byte)0x0e); // start at register 0x0F Status Register
   Wire.endTransmission();
   Wire.requestFrom(DS3231_addr, 1); // Read one byte only
@@ -468,7 +475,8 @@ void enterSleep(void)
  *     SLEEP_MODE_STANDBY
  *     SLEEP_MODE_PWR_DOWN     -the most power savings
  */
-     set_sleep_mode(SLEEP_MODE_PWR_DOWN);   /* EDIT: could also use SLEEP_MODE_PWR_DOWN, SLEEP_MODE_PWR_SAVE for lowest power consumption. */
+  if(cycle_down_cnt > 0) return; // skip the sleep if counting down from setting
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);   /* EDIT: could also use SLEEP_MODE_PWR_DOWN, SLEEP_MODE_PWR_SAVE for lowest power consumption. */
   Serial.flush();
   sleep_enable();
   
@@ -481,5 +489,5 @@ void enterSleep(void)
   
   /* Re-enable the peripherals. */
   power_all_enable();
-  Serial.begin(115200);
+  Serial.begin(BAUD);
 }
