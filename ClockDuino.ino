@@ -1,14 +1,12 @@
-#include <Arduino.h>
-
 #include <avr/sleep.h>
 #include <avr/power.h>
 #include <avr/wdt.h>
 
+#include <drmLib.h>
 #include <Wire.h>
-#include <EEPROM.h>
 #include <TM1637Display.h>
 
-const char *version="ClockDuino -> V6.4.0-20151116 ";
+const char *ver="ClockDuino -> V7.0.0-20151214 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008
 // alice1101983 also has lots of good stuff
 // Works with both now, china module has memory also.
@@ -19,6 +17,7 @@ const char *version="ClockDuino -> V6.4.0-20151116 ";
 // V6.3.6 made BAUD const long and getting ready for some things in library drm
 // V6.3.7 now have problem with finding the TM1637 library, have to fix! is it an Arduino IDE issue?
 // V6.4.0 don't sleep for 10 cycles when in the "set" process
+// V7.0.0 modify to use the drmLib utility routines
 
 // Display Module connection pins (Digital Pins)
 #define DISP_CLK 4
@@ -86,7 +85,7 @@ void setup()
   Wire.begin();
   DS3231_setup();
   pinMode(LED_BUILTIN, OUTPUT);
-  drm_Start_print();
+  drmStartPrint(ver);
   display.setBrightness(bright);
 }
  
@@ -180,7 +179,7 @@ void inc_Datetime(byte inbyte, byte *read_by) {
     addr = 0; mod = 60; mask = 0xff;
     break;
   }
-  byte newbyte = (bcd2dec_Byte(*(read_by+addr)) & mask);
+  byte newbyte = (drmBcd2Dec(*(read_by+addr)) & mask);
 //  Serial.print("newbyte1-> "); Serial.println(newbyte);
   newbyte = ((++newbyte - offset) % mod) + offset; // pre-increment the value with wraping 
 //  Serial.print("newbyte2-> "); Serial.println(newbyte);
@@ -190,23 +189,6 @@ void inc_Datetime(byte inbyte, byte *read_by) {
   Wire.write(addr); // address of BCD digits
   Wire.write(newbyte); // Write the incremented value
   Wire.endTransmission();
-}
-
-unsigned short drm_Serialno() {
-  return(EEPROM.read(5) << 8 | EEPROM.read(6)); // combine two bytes into in serial number (drm specific)
-}
-
-byte bcd2dec_Byte(byte in_byte) {
-  return (((in_byte & 0b11110000)>>4)*10 + (in_byte & 0b00001111));
-}
-
-void s_Prt_lead0(long in, int places) {
-  if(places>10 || places<2) return;
-  in = abs(in); // only for positive numbers
-  if(in < 1000000000) in = in + 1000000000; // extend smaller numbers
-  char out_str[11];
-  sprintf(out_str, "%ld", in);
-  Serial.print((out_str+(10-places)));
 }
 
 void clear_Alarms(byte RTC_status) {
@@ -260,15 +242,6 @@ void DS3231_setup() {
   Wire.endTransmission();
 }
 
-void drm_Start_print() {
-  Serial.print(version); Serial.print(F(" SN#"));
-  Serial.println(drm_Serialno());
-  Serial.print(F("Compiled-> "));
-  Serial.print(F(__DATE__)); 
-  Serial.print(F(" "));
-  Serial.println(F(__TIME__));
-}
-
 void decode_Time(byte *read_by) { // make sense out of the register valuse and put them in the global time structure time_struct
   // The below are all BCD encoded with some high control bits on some
   time_struct->seconds = read_by[0]; // get seconds
@@ -280,49 +253,49 @@ void decode_Time(byte *read_by) { // make sense out of the register valuse and p
   time_struct->year = read_by[6];   // get year (last two digits)
   time_struct->csr = read_by[14];
   time_struct->sr = read_by[15];
-  time_struct->seconds = bcd2dec_Byte(time_struct->seconds);
-  time_struct->minutes = bcd2dec_Byte(time_struct->minutes);
-  time_struct->hours = bcd2dec_Byte(0x3F & time_struct->hours);
-  time_struct->dow = bcd2dec_Byte(time_struct->dow);
-  time_struct->dom = bcd2dec_Byte(time_struct->dom);
-  time_struct->month = bcd2dec_Byte(0x1F & time_struct->month);
-  time_struct->year = bcd2dec_Byte(time_struct->year);
+  time_struct->seconds = drmBcd2Dec(time_struct->seconds);
+  time_struct->minutes = drmBcd2Dec(time_struct->minutes);
+  time_struct->hours = drmBcd2Dec(0x3F & time_struct->hours);
+  time_struct->dow = drmBcd2Dec(time_struct->dow);
+  time_struct->dom = drmBcd2Dec(time_struct->dom);
+  time_struct->month = drmBcd2Dec(0x1F & time_struct->month);
+  time_struct->year = drmBcd2Dec(time_struct->year);
   time_struct->int_year = 2000 + (100*((int) time_struct->month>32)) + (int) time_struct->year;
   time_struct->lsec = time_struct->seconds + 60*(time_struct->minutes + 60*(time_struct->hours + 24*time_struct->dom));
 }
 
 void print_Time(byte *read_by, long msecs) {
-    s_Prt_lead0(time_struct->int_year,4); Serial.print(F("/"));
-    s_Prt_lead0(time_struct->month,2); Serial.print(F("/"));
-    s_Prt_lead0(time_struct->dom,2); Serial.print(F(" "));
+    drmPrtLead0(time_struct->int_year,4); Serial.print(F("/"));
+    drmPrtLead0(time_struct->month,2); Serial.print(F("/"));
+    drmPrtLead0(time_struct->dom,2); Serial.print(F(" "));
     
 // Human readable date and time
-    s_Prt_lead0(time_struct->hours,2); Serial.print(F(":"));
-    s_Prt_lead0((long) time_struct->minutes, 2); Serial.print(F(":"));
-    s_Prt_lead0((long) time_struct->seconds, 2);    
+    drmPrtLead0(time_struct->hours,2); Serial.print(F(":"));
+    drmPrtLead0((long) time_struct->minutes, 2); Serial.print(F(":"));
+    drmPrtLead0((long) time_struct->seconds, 2);    
     Serial.print(F(" PDT "));    
 //    Serial.print(F(" PST "));
 
 // Doug's date serial number to the second    
-    s_Prt_lead0((long) time_struct->int_year, 4);
-    s_Prt_lead0((long) time_struct->month, 2);
-    s_Prt_lead0((long) time_struct->dom, 2);
+    drmPrtLead0((long) time_struct->int_year, 4);
+    drmPrtLead0((long) time_struct->month, 2);
+    drmPrtLead0((long) time_struct->dom, 2);
     Serial.print(F("_"));
-    s_Prt_lead0((long) (time_struct->hours & 0x3F), 2);
-    s_Prt_lead0((long) time_struct->minutes, 2);
-    s_Prt_lead0((long) time_struct->seconds, 2);
+    drmPrtLead0((long) (time_struct->hours & 0x3F), 2);
+    drmPrtLead0((long) time_struct->minutes, 2);
+    drmPrtLead0((long) time_struct->seconds, 2);
 
 //  Temperature
     Serial.print(F(" T-> "));
     Serial.print(read_by[17]);
     Serial.print(F("."));
-    s_Prt_lead0((long) (read_by[18] >> 6)*25, 2);
+    drmPrtLead0((long) (read_by[18] >> 6)*25, 2);
     Serial.print(F("C"));
     time_struct->tempf = 3200 + ((read_by[17]*100 + (read_by[18] >> 6)*25)*9)/5;
     Serial.print(F("/"));
     Serial.print(time_struct->tempf/100);
     Serial.print(F("."));
-    s_Prt_lead0(time_struct->tempf%100, 2);
+    drmPrtLead0(time_struct->tempf%100, 2);
     Serial.print(F("F"));
     
 // Delta seconds    
