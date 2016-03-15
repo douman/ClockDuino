@@ -6,7 +6,7 @@
 #include <Wire.h>
 #include <TM1637Display.h>
 
-const char *ver="ClockDuino -> V7.0.0-20151214 ";
+const char *ver="ClockDuino -> V7.0.1-20160314 ";
 // A little tweeking to get to work with new clock module from ebay $1.59 from Seller: accecity2008
 // alice1101983 also has lots of good stuff
 // Works with both now, china module has memory also.
@@ -18,6 +18,7 @@ const char *ver="ClockDuino -> V7.0.0-20151214 ";
 // V6.3.7 now have problem with finding the TM1637 library, have to fix! is it an Arduino IDE issue?
 // V6.4.0 don't sleep for 10 cycles when in the "set" process
 // V7.0.0 modify to use the drmLib utility routines
+// V7.0.1 add handling for PST/PDT increment/decrement
 
 // Display Module connection pins (Digital Pins)
 #define DISP_CLK 4
@@ -92,7 +93,7 @@ void setup()
 void loop()
 {
   boolean t_wdt_int = wdt_int;
-  char inbyte=NULL, tempbyte=NULL;
+  char inbyte=NULL, tempbyte=NULL; // Start each loop with NULL character as command
   byte read_by[num_regs];
   
   unsigned long new_msec = millis();
@@ -126,13 +127,14 @@ void loop()
     case 'h': // Increment hour
     case 'm': // Increment minute
     case 's': // Increment second
+    case 'T': // PST/PDT swap
       inc_Datetime(inbyte, read_by);
     break;
     case 'b': // cycle through brightness values
       display.setBrightness(0x0f & (bright++));
       Serial.println(0x0f & bright);
       break;
-    default:;
+    default:
       read_Clock(read_by); // read DS3231 registers
       break;
     }
@@ -158,8 +160,10 @@ void loop()
 
 void inc_Datetime(byte inbyte, byte *read_by) {
   byte addr, mask, mod, offset=0;
+  short inc = 1;
   
-  switch (inbyte) {
+  switch (inbyte) 
+  {
   case 'Y':
     addr = 6; mod = 100; mask = 0xff;
     break;
@@ -172,16 +176,21 @@ void inc_Datetime(byte inbyte, byte *read_by) {
   case 'h':
     addr = 2; mod = 24; mask = 0x3f;
     break;
+  case 'T':
+    if(time_struct->month > 6) inc = -1;
+    addr = 2; mod = 24; mask = 0x3f; // alternate hour inc/dec for ST/DT-doesn't work
+    break;
   case 'm':
     addr = 1; mod = 60; mask = 0xff;
     break;
   case 's':
     addr = 0; mod = 60; mask = 0xff;
     break;
+  default:; 
   }
   byte newbyte = (drmBcd2Dec(*(read_by+addr)) & mask);
 //  Serial.print("newbyte1-> "); Serial.println(newbyte);
-  newbyte = ((++newbyte - offset) % mod) + offset; // pre-increment the value with wraping 
+  newbyte = ((newbyte + inc - offset) % mod) + offset; // pre-increment the value with wraping 
 //  Serial.print("newbyte2-> "); Serial.println(newbyte);
   newbyte = ((newbyte/10) << 4) | (newbyte % 10); // convert to BCD
 
